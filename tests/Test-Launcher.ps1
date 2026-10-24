@@ -32,6 +32,9 @@ try {
     }
     Write-Output 'PASS: PowerShell syntax'
 
+    & $powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Test-ProxyDetection.ps1')
+    Assert ($LASTEXITCODE -eq 0) 'Proxy detection tests failed'
+
     $badPort = Run-Check 0 $false
     Assert ($badPort -match 'ProxyPort must be between') 'Missing invalid-port diagnostic'
     $badPort = Run-Check 65536 $false
@@ -76,6 +79,30 @@ try {
     & $installer -Destination $destination -ShortcutDirectory $desktop -ProxyPort 7897 -Force | Out-Null
     Assert ((Get-Content -LiteralPath $retainedFile) -eq 'keep') 'Installer modified an unrelated file'
     Write-Output 'PASS: temporary installation, shortcut, overwrite protection and scoped update'
+
+    $cmdDestination = Join-Path $testRoot 'cmd install'
+    $cmdDesktop = Join-Path $testRoot 'cmd desktop'
+    $startInfo = New-Object Diagnostics.ProcessStartInfo
+    $startInfo.FileName = Join-Path $env:SystemRoot 'System32\cmd.exe'
+    $startInfo.Arguments = '/d /c ""{0}" -ProxyPort 7897 -Destination "{1}" -ShortcutDirectory "{2}""' -f (Join-Path $root 'Install.cmd'), $cmdDestination, $cmdDesktop
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+    $process.StandardInput.WriteLine('')
+    $process.StandardInput.Close()
+    $stdout = $process.StandardOutput.ReadToEndAsync()
+    $stderr = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit(15000)) { $process.Kill(); throw 'Install.cmd timed out' }
+    Assert ($process.ExitCode -eq 0) "Install.cmd failed: $($stdout.Result) $($stderr.Result)"
+    $process.Dispose()
+    $cmdLink = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $cmdDesktop 'ChatGPT Proxy.lnk'))
+    Assert ($cmdLink.Arguments.EndsWith(' 7897')) 'Install.cmd did not create the configured shortcut'
+    Write-Output 'PASS: double-click CMD installer entry point'
 
     # Replace ONLY the temporary launcher with a harmless probe before exercising VBS.
     $probe = 'param([int]$ProxyPort); [IO.File]::WriteAllText((Join-Path $PSScriptRoot "port.txt"), [string]$ProxyPort)'
