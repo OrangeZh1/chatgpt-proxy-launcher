@@ -1,0 +1,11 @@
+# Local settings, diagnostics, and generated shortcuts are not source files.
+.env
+.env.*
+*.lnk
+*.ico
+*.log
+*.bak
+*.zip
+work/
+.DS_Store
+Thumbs.db
